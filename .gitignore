@@ -2,6 +2,7 @@ Include/
 Lib/
 Scripts/
 node_modules/
+__pycache__/
 
 input.css
 pyvenv.cfg

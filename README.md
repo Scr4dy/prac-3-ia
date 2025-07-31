@@ -21,7 +21,7 @@ npm install tailwindcss @tailwindcss/cli
 ```
 ### Ejecutar TailwindCSS
 ```
-npx @tailwindcss/cli -i ./static/input.css -o ./static/style.css --watch
+npx @tailwindcss/cli -i ./static/input.css -o ./static/styles.css --watch
 ```
 ## Ejecutar proyecto
 ```
