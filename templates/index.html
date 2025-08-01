@@ -5,10 +5,17 @@
     <meta charset="UTF-8">
     <title>Misioneros y Caníbales - Visual</title>
     <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
         let secondsElapsed = 0;
         let timerInterval = null;
-        const safePath = {{ nodes | tojson }};
+
+        let state = {
+            left: { m: 3, c: 3 },
+            right: { m: 0, c: 0 },
+            boat: { m: 0, c: 0 },
+            boatSide: 'left'
+        };
 
         function startTimer() {
             secondsElapsed = 0;
@@ -28,13 +35,6 @@
             const secs = String(secondsElapsed % 60).padStart(2, '0');
             document.getElementById("timer").textContent = `⏱️ Tiempo: ${mins}:${secs}`;
         }
-
-        let state = {
-            left: { m: 3, c: 3 },
-            right: { m: 0, c: 0 },
-            boat: { m: 0, c: 0 },
-            boatSide: 'left'
-        };
 
         function render() {
             const left = document.getElementById("left");
@@ -148,42 +148,180 @@
             render();
         }
 
-        function startAuto() {
+        async function startAuto() {
             const mode = document.getElementById("auto-mode").value;
             resetGame();
 
-            if (mode === 'safe') {
-                let i = 0;
-                const interval = setInterval(() => {
-                    if (i >= safePath.length) {
-                        clearInterval(interval);
-                        document.getElementById("message").textContent = "🎉 ¡Ganaste en modo seguro!";
-                        document.getElementById("reset-btn").disabled = false;
-                        stopTimer();
-                        return;
-                    }
-                    const step = safePath[i];
-                    const [leftM, leftC] = step.left.split(',').map(v => parseInt(v));
-                    const [rightM, rightC] = step.right.split(',').map(v => parseInt(v));
-                    const boatSide = step.boat;
+            // Limpiar árbol anterior
+            document.getElementById("tree-container").innerHTML = "";
 
-                    // Calcular qué hay en el bote
-                    const boatM = 3 - leftM - rightM;
-                    const boatC = 3 - leftC - rightC;
+            // Endpoints separados por modo
+            const pathEndpoint = mode === 'safe' ? '/api/solution-safe' : '/api/solution-random';
+            const treeEndpoint = mode === 'safe' ? '/api/tree-safe' : '/api/tree-random';
 
-                    state = {
-                        left: { m: leftM, c: leftC },
-                        right: { m: rightM, c: rightC },
-                        boat: { m: boatM, c: boatC },
-                        boatSide: boatSide
-                    };
+            try {
+                // Obtener ambos en paralelo
+                const [pathRes, treeRes] = await Promise.all([
+                    fetch(pathEndpoint),
+                    fetch(treeEndpoint)
+                ]);
 
-                    render();
-                    i++;
-                }, 1000);
-            } else {
-                window.location.href = "/random";
+                if (!pathRes.ok || !treeRes.ok) throw new Error("Error al obtener solución");
+
+                const path = await pathRes.json();
+                const tree = await treeRes.json();
+
+                // Dibuja el árbol
+                drawTree(tree);
+
+                // Verificar que hay pasos válidos
+                if (!path || path.length === 0) {
+                    const msg = document.getElementById("message");
+                    msg.textContent = mode === 'safe'
+                        ? "💀 ¡Modo seguro falló (no se encontró solución)!"
+                        : "💀 ¡Fracaso en modo aleatorio (los misioneros fueron comidos o no se llegó)!";
+                    msg.style.color = "red";
+                    document.getElementById("reset-btn").disabled = false;
+                    stopTimer();
+                    return;
+                }
+
+                // Animar paso a paso
+                animateSteps(path, mode);
+
+            } catch (error) {
+                alert("No se pudo obtener la solución: " + error.message);
             }
+        }
+
+        // Función para animar los pasos
+        function animateSteps(stepsArray, mode) {
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i >= stepsArray.length) {
+                    clearInterval(interval);
+                    const final = mode === 'safe' ? stepsArray[stepsArray.length - 1] : stepsArray[stepsArray.length - 1];
+
+                    if (final.status === "win") {
+                        document.getElementById("message").style.color = "green";
+                        document.getElementById("message").textContent = mode === 'safe'
+                            ? "🎉 ¡Ganaste en modo seguro!"
+                            : "🎉 ¡Ganaste en modo aleatorio!";
+                    } else {
+                        document.getElementById("message").style.color = "red";  // <-- aquí el color rojo
+                        document.getElementById("message").textContent = mode === 'safe'
+                            ? "💀 ¡Modo seguro falló (no se encontró solución)!"
+                            : "💀 ¡Fracaso en modo aleatorio (los misioneros fueron comidos o no se llegó)!";
+                    }
+
+                    if (final.status === "fail") {
+                        let detailMsg = "";
+                        if (final.left === "-1M,-1C") {
+                            detailMsg = " (bloqueado - sin movimientos válidos)";
+                        } else if (final.left === "-2M,-2C") {
+                            detailMsg = " (timeout - solución no encontrada a tiempo)";
+                        }
+                        document.getElementById("message").textContent += detailMsg;
+                    }
+                    
+                    document.getElementById("reset-btn").disabled = false;
+                    stopTimer();
+                    return;
+                }
+
+                const step = stepsArray[i];
+
+                const [leftM, leftC] = step.left.split(',').map(v => parseInt(v));
+                const [rightM, rightC] = step.right.split(',').map(v => parseInt(v));
+                const boatSide = step.boat;
+
+                const boatM = 3 - leftM - rightM;
+                const boatC = 3 - leftC - rightC;
+
+                state = {
+                    left: { m: leftM, c: leftC },
+                    right: { m: rightM, c: rightC },
+                    boat: { m: boatM, c: boatC },
+                    boatSide: boatSide
+                };
+
+                render();
+                i++;
+            }, 1000);
+        }
+
+        // Función para extraer el camino ganador desde el árbol (debe recorrer recursivamente)
+        function extractWinningPath(node) {
+            if (!node) return [];
+            if (node.status === "win") return [node];
+            if (!node.children || node.children.length === 0) return [];
+
+            for (const child of node.children) {
+                const path = extractWinningPath(child);
+                if (path.length > 0) {
+                    return [node].concat(path);
+                }
+            }
+
+            return [];
+        }
+
+        // Función para dibujar el árbol usando D3
+        function drawTree(treeData) {
+            document.getElementById("tree-container").innerHTML = "";
+
+            const width = 800;
+            const height = 600;
+
+            const svg = d3.select("#tree-container")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const root = d3.hierarchy(treeData, d => d.children);
+
+            const treeLayout = d3.tree().size([height - 100, width - 150]);
+            treeLayout(root);
+
+            // Enlaces
+            svg.selectAll('line.link')
+                .data(root.links())
+                .enter()
+                .append('line')
+                .attr('class', 'link')
+                .attr('x1', d => d.source.y + 75)
+                .attr('y1', d => d.source.x + 50)
+                .attr('x2', d => d.target.y + 75)
+                .attr('y2', d => d.target.x + 50)
+                .attr('stroke', '#999');
+
+            // Nodos
+            svg.selectAll('circle.node')
+                .data(root.descendants())
+                .enter()
+                .append('circle')
+                .attr('class', 'node')
+                .attr('cx', d => d.y + 75)
+                .attr('cy', d => d.x + 50)
+                .attr('r', 20)
+                .attr('fill', d => {
+                    if (d.data.status === "win") return "green";
+                    if (d.data.status === "fail") return "red";
+                    return "#69b3a2";
+                });
+
+            // Etiquetas
+            svg.selectAll('text.label')
+                .data(root.descendants())
+                .enter()
+                .append('text')
+                .attr('class', 'label')
+                .attr('x', d => d.y + 75)
+                .attr('y', d => d.x + 50)
+                .attr('dy', 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', 'white')
+                .text(d => `${d.data.left} | ${d.data.right}`);
         }
 
         window.onload = () => {
@@ -237,7 +375,10 @@
             class="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled>
             🔁 Reiniciar Juego
         </button>
+
     </div>
+
+    <div id="tree-container" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px;"></div>
 
 </body>
 
