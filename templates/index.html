@@ -6,84 +6,190 @@
     <title>Misioneros y Caníbales - Visual</title>
     <link href="/static/styles.css" rel="stylesheet">
     <script>
-        let currentStep = 0;
-        const steps = {{ nodes | tojson }};
+        let secondsElapsed = 0;
+        let timerInterval = null;
+        const safePath = {{ nodes | tojson }};
 
-        function renderPeople(container, m, c) {
-            container.innerHTML = "";
-            for (let i = 0; i < m; i++) {
-                const el = document.createElement("div");
-                el.textContent = "👨‍🦰";
-                el.className = "bg-blue-100 rounded-full px-2 py-1 mx-1 shadow text-2xl";
-                container.appendChild(el);
-            }
-            for (let i = 0; i < c; i++) {
-                const el = document.createElement("div");
-                el.textContent = "👹";
-                el.className = "bg-red-100 rounded-full px-2 py-1 mx-1 shadow text-2xl";
-                container.appendChild(el);
-            }
+        function startTimer() {
+            secondsElapsed = 0;
+            updateTimerDisplay();
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                updateTimerDisplay();
+            }, 1000);
         }
 
-        function renderStep(step) {
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+
+        function updateTimerDisplay() {
+            const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+            const secs = String(secondsElapsed % 60).padStart(2, '0');
+            document.getElementById("timer").textContent = `⏱️ Tiempo: ${mins}:${secs}`;
+        }
+
+        let state = {
+            left: { m: 3, c: 3 },
+            right: { m: 0, c: 0 },
+            boat: { m: 0, c: 0 },
+            boatSide: 'left'
+        };
+
+        function render() {
             const left = document.getElementById("left");
             const right = document.getElementById("right");
             const boat = document.getElementById("boat");
-            const message = document.getElementById("message");
-            const resetBtn = document.getElementById("reset-btn");
 
-            const state = steps[step];
-            document.getElementById("step-count").textContent = "Paso: " + state.step;
+            left.innerHTML = "";
+            right.innerHTML = "";
+            boat.innerHTML = "";
 
-            const [lm, lc] = state.left.split('M,').map(s => parseInt(s));
-            const [rm, rc] = state.right.split('M,').map(s => parseInt(s));
-
-            renderPeople(left, lm, lc);
-            renderPeople(right, rm, rc);
-
-            boat.textContent = "🚣";
-
-            if (state.boat === 'left') {
-                boat.style.left = "10%";
-                boat.style.transform = "scaleX(1)";
-            } else {
-                boat.style.left = "60%";
-                boat.style.transform = "scaleX(-1)";
+            function createPerson(type, location) {
+                const el = document.createElement("div");
+                el.textContent = type === 'm' ? "👼" : "👺";
+                el.className = (type === 'm' ? "bg-blue-100" : "bg-red-100") +
+                    " rounded-full px-2 py-1 shadow cursor-pointer text-2xl";
+                el.onclick = () => movePerson(type, location);
+                return el;
             }
 
-            if (step === steps.length - 1) {
-                message.textContent = "🎉 ¡Juego completado!";
-                resetBtn.disabled = false;
-                resetBtn.classList.remove("opacity-50", "cursor-not-allowed");
-            } else {
-                message.textContent = "";
-            }
+            for (let i = 0; i < state.left.m; i++) left.appendChild(createPerson('m', 'left'));
+            for (let i = 0; i < state.left.c; i++) left.appendChild(createPerson('c', 'left'));
+            for (let i = 0; i < state.right.m; i++) right.appendChild(createPerson('m', 'right'));
+            for (let i = 0; i < state.right.c; i++) right.appendChild(createPerson('c', 'right'));
+            for (let i = 0; i < state.boat.m; i++) boat.appendChild(createPerson('m', 'boat'));
+            for (let i = 0; i < state.boat.c; i++) boat.appendChild(createPerson('c', 'boat'));
+
+            // Muestra el bote
+            const icon = document.createElement("span");
+            icon.textContent = "⛵";
+            icon.className = "cursor-pointer";
+            icon.onclick = moveBoat;
+            boat.appendChild(icon);
+
+            boat.style.left = state.boatSide === 'left' ? "10%" : "60%";
+            boat.style.transform = state.boatSide === 'left' ? "scaleX(1)" : "scaleX(-1)";
         }
 
-        function nextStep() {
-            if (currentStep < steps.length - 1) {
-                currentStep++;
-                renderStep(currentStep);
+        function movePerson(type, location) {
+            if (location === 'boat') {
+                // bajar del bote
+                if (state.boatSide === 'left') state.left[type]++;
+                else state.right[type]++;
+                state.boat[type]--;
+            } else {
+                // subir al bote
+                if (state.boat.m + state.boat.c >= 2) return; // máx 2 en el bote
+                if (state.boatSide !== location) return; // solo si están en el mismo lado
+                if (state[location][type] > 0) {
+                    state[location][type]--;
+                    state.boat[type]++;
+                }
             }
+            render();
         }
 
-        function prevStep() {
-            if (currentStep > 0) {
-                currentStep--;
-                renderStep(currentStep);
+        function moveBoat() {
+            if (state.boat.m + state.boat.c === 0) return; // no se puede mover vacío
+
+            // mover bote
+            state.boatSide = state.boatSide === 'left' ? 'right' : 'left';
+
+            // descargar personas
+            if (state.boatSide === 'left') {
+                state.left.m += state.boat.m;
+                state.left.c += state.boat.c;
+            } else {
+                state.right.m += state.boat.m;
+                state.right.c += state.boat.c;
             }
+            state.boat.m = 0;
+            state.boat.c = 0;
+
+            if (!isValidState()) {
+                stopTimer();
+                alert("💀 ¡Los misioneros fueron comidos! 😱");
+                resetGame();
+                return;
+            }
+
+            if (state.right.m === 3 && state.right.c === 3) {
+                render();
+                setTimeout(() => {
+                    stopTimer();
+                    document.getElementById("message").textContent = "🎉 ¡Ganaste! Todos cruzaron sanos y salvos.";
+                    document.getElementById("reset-btn").disabled = false;
+                }, 200);
+                return;
+            }
+
+            render();
+        }
+
+        function isValidState() {
+            const { left, right } = state;
+            const lValid = (left.m === 0 || left.m >= left.c);
+            const rValid = (right.m === 0 || right.m >= right.c);
+            return lValid && rValid;
         }
 
         function resetGame() {
-            currentStep = 0;
-            renderStep(currentStep);
-            const resetBtn = document.getElementById("reset-btn");
-            resetBtn.disabled = true;
-            resetBtn.classList.add("opacity-50", "cursor-not-allowed");
+            state = {
+                left: { m: 3, c: 3 },
+                right: { m: 0, c: 0 },
+                boat: { m: 0, c: 0 },
+                boatSide: 'left'
+            };
             document.getElementById("message").textContent = "";
+            document.getElementById("reset-btn").disabled = true;
+            stopTimer();
+            startTimer();
+            render();
         }
 
-        window.onload = () => renderStep(currentStep);
+        function startAuto() {
+            const mode = document.getElementById("auto-mode").value;
+            resetGame();
+
+            if (mode === 'safe') {
+                let i = 0;
+                const interval = setInterval(() => {
+                    if (i >= safePath.length) {
+                        clearInterval(interval);
+                        document.getElementById("message").textContent = "🎉 ¡Ganaste en modo seguro!";
+                        document.getElementById("reset-btn").disabled = false;
+                        stopTimer();
+                        return;
+                    }
+                    const step = safePath[i];
+                    const [leftM, leftC] = step.left.split(',').map(v => parseInt(v));
+                    const [rightM, rightC] = step.right.split(',').map(v => parseInt(v));
+                    const boatSide = step.boat;
+
+                    // Calcular qué hay en el bote
+                    const boatM = 3 - leftM - rightM;
+                    const boatC = 3 - leftC - rightC;
+
+                    state = {
+                        left: { m: leftM, c: leftC },
+                        right: { m: rightM, c: rightC },
+                        boat: { m: boatM, c: boatC },
+                        boatSide: boatSide
+                    };
+
+                    render();
+                    i++;
+                }, 1000);
+            } else {
+                window.location.href = "/random";
+            }
+        }
+
+        window.onload = () => {
+            render();
+            startTimer();
+        }
     </script>
 
 </head>
@@ -92,43 +198,45 @@
 
     <h1 class="text-3xl font-bold text-center mb-6">🌊 Misioneros y Caníbales</h1>
 
-    <div id="step-count" class="text-xl font-semibold mb-2">Paso: 0</div>
+    <div id="timer" class="text-xl font-semibold mb-2">⏱️ Tiempo: 00:00</div>
 
     <div id="message" class="mb-3 text-lg font-bold text-green-700"></div>
 
     <div
         class="flex items-center justify-center w-full max-w-5xl h-40 rounded-lg shadow-lg overflow-hidden border border-gray-300">
-        <!-- Zona izquierda (pasto) -->
-        <div id="left" class="w-1/3 h-full bg-green-200 flex justify-end items-center p-4 space-x-1 flex-wrap text-2xl">
-            <!-- Personajes renderizados desde JS -->
+        <!-- Orilla izquierda -->
+        <div id="left" class="w-1/3 h-full bg-green-200 flex justify-end items-center p-4 gap-1 flex-wrap text-2xl">
+            <!-- personajes renderizados desde JS -->
         </div>
 
         <!-- Río -->
         <div class="w-1/3 h-full bg-blue-300 flex items-center justify-center relative">
-            <div id="boat" class="absolute transition-all duration-700 text-4xl">
-                🚣
+            <div id="boat" class="absolute transition-all duration-500 text-4xl cursor-pointer flex gap-1 items-center">
+                <!-- personajes en el bote + ícono -->
+                <span>⛵</span>
             </div>
         </div>
 
-
-        <!-- Zona derecha (pasto) -->
-        <div id="right"
-            class="w-1/3 h-full bg-green-200 flex justify-start items-center p-4 space-x-1 flex-wrap text-2xl">
-            <!-- Personajes renderizados desde JS -->
+        <!-- Orilla derecha -->
+        <div id="right" class="w-1/3 h-full bg-green-200 flex justify-start items-center p-4 gap-1 flex-wrap text-2xl">
+            <!-- personajes renderizados desde JS -->
         </div>
     </div>
 
-    <div class="flex space-x-4 mt-6">
-        <button onclick="prevStep()" class="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded">⬅
-            Anterior</button>
-        <button onclick="nextStep()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Siguiente
-            ➡</button>
+    <div class="flex space-x-4 mt-6 items-center">
+        <label for="auto-mode" class="text-lg font-semibold">Modo:</label>
+        <select id="auto-mode" class="px-2 py-1 rounded bg-white text-black">
+            <option value="safe">Seguro</option>
+            <option value="random">Aleatorio</option>
+        </select>
+        <button onclick="startAuto()" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded">
+            🤖 Automático
+        </button>
 
         <button id="reset-btn" onclick="resetGame()"
             class="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled>
             🔁 Reiniciar Juego
         </button>
-
     </div>
 
 </body>
