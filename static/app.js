@@ -1,6 +1,8 @@
 let secondsElapsed = 0;
 let timerInterval = null;
 let manualSteps = [];
+let safePathData = [];
+let randomPathData = [];
 
 let state = {
     left: { m: 3, c: 3 },
@@ -186,7 +188,6 @@ function resetGame() {
     render();
 }
 
-
 async function startAuto() {
     const mode = document.getElementById("auto-mode").value;
     resetGame();
@@ -234,6 +235,14 @@ async function startAuto() {
         else loadRandomPath();
 
         animateSteps(path, mode);
+
+        if (mode === 'random') {
+            loadRandomPath();
+            setTimeout(() => {
+                const tree = buildTreeFromStepsData(randomPathData);
+                drawTree(tree);
+            }, 300);
+        }
 
     } catch (error) {
         alert("No se pudo obtener la solución: " + error.message);
@@ -383,6 +392,7 @@ function loadSafePath() {
     fetch('/api/solution-safe')
         .then(res => res.json())
         .then(data => {
+            safePathData = data; // 🔥 Guardamos para construir árbol más adelante
             const body = document.getElementById("table-safe");
             body.innerHTML = "";
             data.forEach(step => {
@@ -403,6 +413,7 @@ function loadRandomPath() {
     fetch('/api/solution-random')
         .then(res => res.json())
         .then(data => {
+            randomPathData = data; // 🔥 Guardamos para el árbol
             const body = document.getElementById("table-random");
             body.innerHTML = "";
             data.forEach(step => {
@@ -419,6 +430,7 @@ function loadRandomPath() {
         });
 }
 
+
 function showTable(mode) {
     const containers = {
         safe: document.getElementById("safe-table-container"),
@@ -431,4 +443,54 @@ function showTable(mode) {
 
     // Muestra el seleccionado (si existe)
     if (containers[mode]) containers[mode].style.display = "block";
+}
+
+function buildTreeFromStepsData(steps) {
+    if (!steps || steps.length === 0) return null;
+
+    const root = {
+        left: steps[0].left,
+        right: steps[0].right,
+        boat: steps[0].boat,
+        status: steps[0].status,
+        children: []
+    };
+
+    let current = root;
+
+    for (let i = 1; i < steps.length; i++) {
+        const step = steps[i];
+        const node = {
+            left: step.left,
+            right: step.right,
+            boat: step.boat,
+            status: step.status,
+            children: []
+        };
+        current.children.push(node);
+        current = node;
+    }
+
+    return root;
+}
+
+function extractStepsFromTable(tableId) {
+    const table = document.getElementById(tableId);
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const steps = rows.map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            izquierda: cells[1].textContent,
+            derecha: cells[2].textContent,
+            bote: cells[3].textContent,
+            estado: cells[4].textContent
+        };
+    });
+    return steps;
+}
+
+function updateTreeFromTable(tableId) {
+    const steps = extractStepsFromTable(tableId);
+    const tree = buildTreeFromTableSteps(steps);
+    drawTree(tree);
 }
