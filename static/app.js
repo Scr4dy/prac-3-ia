@@ -72,6 +72,7 @@ function recordManualStep() {
     const boat = state.boatSide;
     manualSteps.push({ left, right, boat });
     updateManualTable();
+    updateDrawManualButton();  // Actualiza estado del botón
     showTable('manual');
 }
 
@@ -137,7 +138,9 @@ function moveBoat() {
         render();
         setTimeout(() => {
             stopTimer();
-            document.getElementById("message").textContent = "🎉 ¡Ganaste! Todos cruzaron sanos y salvos.";
+            const msg = document.getElementById("message");
+            msg.style.color = "green";  // <-- Aquí pon el color verde explícitamente
+            msg.textContent = "🎉 ¡Ganaste! Todos cruzaron sanos y salvos.";
             document.getElementById("reset-btn").disabled = false;
         }, 200);
         return;
@@ -263,7 +266,7 @@ function animateSteps(stepsArray, mode) {
                     ? "🎉 ¡Ganaste en modo seguro!"
                     : "🎉 ¡Ganaste en modo aleatorio!";
             } else {
-                document.getElementById("message").style.color = "red";  // <-- aquí el color rojo
+                document.getElementById("message").style.color = "red";
                 document.getElementById("message").textContent = mode === 'safe'
                     ? "💀 ¡Modo seguro falló (no se encontró solución)!"
                     : "💀 ¡Fracaso en modo aleatorio (los misioneros fueron comidos o no se llegó)!";
@@ -321,11 +324,10 @@ function extractWinningPath(node) {
     return [];
 }
 
-// Función para dibujar el árbol usando D3
 function drawTree(treeData) {
     document.getElementById("tree-container").innerHTML = "";
 
-    const width = 800;
+    const width = 1000;
     const height = 600;
 
     const svg = d3.select("#tree-container")
@@ -335,10 +337,13 @@ function drawTree(treeData) {
 
     const root = d3.hierarchy(treeData, d => d.children);
 
-    const treeLayout = d3.tree().size([height - 100, width - 150]);
+    const treeLayout = d3.tree()
+        .size([height - 100, width - 150])  // ojo invertido para que x sea vertical
+        .separation((a, b) => (a.parent === b.parent ? 1 : 2));
+
     treeLayout(root);
 
-    // Enlaces
+    // Líneas (enlaces)
     svg.selectAll('line.link')
         .data(root.links())
         .enter()
@@ -378,15 +383,6 @@ function drawTree(treeData) {
         .attr('fill', 'white')
         .text(d => `${d.data.left} | ${d.data.right}`);
 }
-
-window.onload = () => {
-    render();
-    startTimer();
-    loadSafePath();
-    loadRandomPath();
-    showTable('manual');
-};
-
 
 function loadSafePath() {
     fetch('/api/solution-safe')
@@ -430,7 +426,6 @@ function loadRandomPath() {
         });
 }
 
-
 function showTable(mode) {
     const containers = {
         safe: document.getElementById("safe-table-container"),
@@ -445,34 +440,63 @@ function showTable(mode) {
     if (containers[mode]) containers[mode].style.display = "block";
 }
 
-function buildTreeFromStepsData(steps) {
+function buildTreeFromManualSteps(steps) {
     if (!steps || steps.length === 0) return null;
 
-    const root = {
-        left: steps[0].left,
-        right: steps[0].right,
-        boat: steps[0].boat,
-        status: steps[0].status,
-        children: []
-    };
+    const nodesByKey = {};
 
-    let current = root;
+    function stateKey(step) {
+        return `${step.left}|${step.right}|${step.boat}`;
+    }
+
+    function getNode(step) {
+        const key = stateKey(step);
+        if (!nodesByKey[key]) {
+            nodesByKey[key] = {
+                left: step.left,
+                right: step.right,
+                boat: step.boat,
+                status: step.status || null,
+                children: []
+            };
+        }
+        return nodesByKey[key];
+    }
+
+    const root = getNode(steps[0]);
+
+    // Mantén un set para detectar ciclos indirectos
+    const visited = new Set();
 
     for (let i = 1; i < steps.length; i++) {
-        const step = steps[i];
-        const node = {
-            left: step.left,
-            right: step.right,
-            boat: step.boat,
-            status: step.status,
-            children: []
-        };
-        current.children.push(node);
-        current = node;
+        const parent = getNode(steps[i - 1]);
+        const child = getNode(steps[i]);
+
+        // Prevenir ciclos: no añadir hijo si ya es ancestro
+        if (!isDescendant(child, parent)) {
+            if (!parent.children.includes(child)) {
+                parent.children.push(child);
+            }
+        }
     }
 
     return root;
+
+    // Función para verificar si nodeA es descendiente de nodeB (recursiva)
+    function isDescendant(nodeA, nodeB, visited = new Set()) {
+        if (!nodeB.children || nodeB.children.length === 0) return false;
+        if (nodeB.children.includes(nodeA)) return true;
+
+        visited.add(nodeB);
+
+        for (const child of nodeB.children) {
+            if (visited.has(child)) continue;  // evita ciclo infinito
+            if (isDescendant(nodeA, child, visited)) return true;
+        }
+        return false;
+    }
 }
+
 
 function extractStepsFromTable(tableId) {
     const table = document.getElementById(tableId);
@@ -494,3 +518,58 @@ function updateTreeFromTable(tableId) {
     const tree = buildTreeFromTableSteps(steps);
     drawTree(tree);
 }
+
+function drawManualTree() {
+    const steps = manualSteps.map((step, i) => ({
+        left: step.left,
+        right: step.right,
+        boat: step.boat,
+        status: null
+    }));
+
+    const tree = buildTreeFromManualSteps(steps);
+    drawTree(tree);
+}
+
+document.getElementById("btn-draw-manual-tree").onclick = () => {
+    if (manualSteps.length === 0) {
+        alert("No hay pasos manuales para construir el árbol");
+        return;
+    }
+    document.getElementById("tree-container").innerHTML = "";
+    drawManualTree();
+};
+
+function updateDrawManualButton() {
+    const btn = document.getElementById("btn-draw-manual-tree");
+    if (!btn) return;
+
+    if (manualSteps.length > 0) {
+        btn.disabled = false;
+        btn.classList.remove("opacity-50", "cursor-not-allowed");
+    } else {
+        btn.disabled = true;
+        btn.classList.add("opacity-50", "cursor-not-allowed");
+    }
+}
+
+window.onload = () => {
+    render();
+    startTimer();
+    loadSafePath();
+    loadRandomPath();
+    showTable('manual');
+    updateDrawManualButton();
+
+    const btnDraw = document.getElementById("btn-draw-manual-tree");
+    if (btnDraw) {
+        btnDraw.onclick = () => {
+            if (manualSteps.length === 0) {
+                alert("No hay pasos manuales para construir el árbol");
+                return;
+            }
+            document.getElementById("tree-container").innerHTML = "";
+            drawManualTree();
+        };
+    }
+};

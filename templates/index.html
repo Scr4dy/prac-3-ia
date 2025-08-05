@@ -6,8 +6,6 @@
     <title>Misioneros y Caníbales - Visual</title>
     <link href="/static/styles.css" rel="stylesheet">
     <script src="/static/d3.v7.min.js"></script>
-    <script src="/static/app.js"></script>
-
 </head>
 
 <body class="bg-blue-100 min-h-screen flex flex-col items-center p-6">
@@ -45,6 +43,7 @@
             <option value="safe">Seguro</option>
             <option value="random">Aleatorio</option>
         </select>
+
         <button onclick="startAuto()" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded">
             Automático
         </button>
@@ -53,6 +52,13 @@
             class="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled>
             Reiniciar Juego
         </button>
+
+        <!--
+        <button id="btn-draw-manual-tree"
+            class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded shadow-md transition-colors duration-200 my-4">
+            Mostrar árbol manual
+        </button>
+        -->
 
     </div>
 
@@ -108,7 +114,7 @@
 
     <div id="tree-container" class="mt-5 border border-gray-300 p-2 w-full max-w-4xl h-[600px] overflow-auto">
     </div>
-
+    <script src="/static/app.js"></script>
 </body>
 
 </html>
